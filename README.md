@@ -287,8 +287,8 @@ KITTI is © Geiger, Lenz, Stiller and Urtasun and licensed
 [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/). No
 KITTI data is redistributed in this repository; `run_all.sh` downloads it from
 the official mirror. The result tables and figures are derived from KITTI and
-are shared under the same CC BY-NC-SA 3.0 terms. The code is separate from the
-data license.
+are shared under the same CC BY-NC-SA 3.0 terms. The code is MIT-licensed
+([`LICENSE`](LICENSE)), separate from the data license.
 
 ## Software and data
 
