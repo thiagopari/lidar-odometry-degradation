@@ -127,13 +127,22 @@ Drift here uses the 100–600 m segments of the 694 m loop. The full table is
 4. **A map does not save sparse rings.**
    - On seq 04, VGICP breaks at 16 rings (26.7 %), while scan-to-scan GICP held there.
    - On seq 07, VGICP breaks at 8 rings (17.9 %), while scan-to-scan GICP held at 4.17 %.
-5. **Some low-rate failures happen at start-up.** Seeding VGICP's first
-   registration from ground truth changes:
-   - seq 04 at 2.5 Hz: 89.3 % → 0.53 %
-   - seq 04 at 1.25 Hz: 107 % → 0.60 %
-   - So on seq 04 the constant-velocity guess from rest is what fails, not tracking.
-   - On seq 07 at 1.25 Hz, seeding does not help (60.4 % → 61.4 %). That one is a
-     real tracking limit.
+5. **On seq 04 the low-rate failures are start-up failures; on seq 07 at 1.25 Hz the limit is real.**
+   Every method was re-run with its first registration seeded from the ground-truth motion
+   (KITTI drift, zero-motion start → seeded):
+
+   | Seq, rate | KISS-ICP | GICP | P2P ICP | VGICP |
+   |---|---|---|---|---|
+   | 04, 2.5 Hz | 92.9 → 0.52 % | 99.6 → 0.43 % | 95.3 → 1.25 % | 89.3 → 0.53 % |
+   | 04, 1.25 Hz | 108 → 0.74 % | 103 → 0.48 % | 108 → 1.38 % | 107 → 0.60 % |
+   | 07, 1.25 Hz | 10.4 → 31.8 % | 8.96 → 8.96 % | 40.4 → 39.8 % | 60.4 → 61.4 % |
+
+   - On the straight seq 04, a good first guess is all any method needs, even with
+     about 12 m between scans at 1.25 Hz.
+   - On seq 07 at 1.25 Hz (about 5 m between scans, with turns), seeding does not help,
+     and KISS-ICP even gets worse in this one-seed run. That is a real tracking limit.
+   - Seeding KISS-ICP needs the ground-truth rotation projected back onto SO(3): KITTI's
+     rounded poses are not exactly orthonormal, and its C++ core (Sophus) aborts on them.
 
 ## Method
 
@@ -247,9 +256,8 @@ The kiss-icp README lists no KITTI numbers to compare against.
 - **The first scan pair at low rate has no motion prior.** Every method starts
   from identity, so on sequence 04 at 2.5 Hz the first registration must close
   about 5.8 m from a zero guess (about 12 m at 1.25 Hz). The round 2
-  GT-seeded runs separate start-up failures from tracking limits for VGICP
-  (see [Round 2 checks](#round-2-checks-oct-12)); the other methods were not
-  re-run seeded.
+  GT-seeded runs separate start-up failures from tracking limits for every
+  method (see [Round 2 checks](#round-2-checks-oct-12)), with one seed each.
 - **Defaults, not tuned systems.** No method was re-tuned per degradation,
   apart from the range-matched KISS-ICP check in round 2. Round 2's
   scan-to-model VGICP separates map vs. no map from the cost function; a GICP

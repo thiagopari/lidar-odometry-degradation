@@ -110,7 +110,8 @@ def run_kiss(scans, deskew=False, step=1, seed=None):
         t = 0.5 * (1 - np.arctan2(s[:, 1], s[:, 0]) / np.pi)
         odom.register_frame(s, 0.5 + (t - 0.5) / step if deskew else np.array([]))
         if i == 0 and seed is not None:
-            odom.last_delta = seed
+            U, _, Vt = np.linalg.svd(seed[:3, :3])  # KITTI GT is rounded; Sophus aborts on a non-orthonormal R
+            odom.last_delta = np.block([[U @ Vt, seed[:3, 3:]], [np.zeros((1, 3)), np.ones((1, 1))]])
         yield odom.last_pose.copy(), time.perf_counter() - t0
 
 
