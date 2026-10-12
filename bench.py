@@ -41,7 +41,7 @@ DIVERGE_PCT = 10.0  # flag a run whose KITTI drift exceeds 10 % (defined at ever
 def rings(pts):
     """Laser index per point. KITTI .bin has no ring field; points are stored laser by laser,
     each sweep cut at the forward direction, so a new ring starts at every -0 -> +0 azimuth step.
-    Checked against elevation in load(): 64 rings, median elevation strictly decreasing."""
+    Checked against elevation in load(): 64 rings, median elevation decreasing ring by ring."""
     az = np.arctan2(pts[:, 1], pts[:, 0])
     return np.concatenate([[0], np.cumsum((az[1:] >= 0) & (az[:-1] < 0))])
 
@@ -74,7 +74,8 @@ def load(seq):
         r = rings(p)
         el = np.arctan2(p[:, 2], np.linalg.norm(p[:, :2], axis=1))
         med = np.array([np.median(el[r == k]) for k in range(r[-1] + 1)])
-        assert r[-1] == 63 and np.all(np.diff(med) < 0), f"ring derivation failed on {f.name}"
+        # 64 rings, median elevation falling ring by ring; adjacent rings may swap by < 0.5 deg (seq 07: 21 of 1101 scans, max 0.37 deg)
+        assert r[-1] == 63 and np.diff(med).max() < np.radians(0.5), f"ring derivation failed on {f.name}"
         # KISS-ICP's KITTI loader applies this vertical-angle intrinsic fix; applied to every method's input
         scans.append(np.asarray(kiss_icp_pybind._correct_kitti_scan(kiss_icp_pybind._Vector3dVector(p))))
         ring_ids.append(r)
@@ -108,7 +109,7 @@ def run_kiss(scans):
 
 def run_small_gicp(scans, reg_type):
     """Scan-to-scan small_gicp: scan k registered to scan k-1 (KdTree target), 0.25 m voxel
-    downsampling, 10-NN covariances, 1.0 m max correspondence, <= 20 Gauss-Newton iterations,
+    downsampling, 10-NN covariances, 1.0 m max correspondence, <= 20 iterations,
     constant-velocity initial guess (last relative motion)."""
     T, delta, prev = np.eye(4), np.eye(4), None
     for s in scans:
