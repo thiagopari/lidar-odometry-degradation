@@ -8,8 +8,7 @@ road at a mean 14.6 m/s), applies five synthetic degradations at three or four
 levels each, runs three odometry front ends on every degraded copy, and scores
 the trajectories against KITTI ground truth. A first pass repeats the sweep on
 sequence 07 (1101 scans, 694.4 m of residential streets at a mean 6.3 m/s,
-ending 9.4 m from its start) with two of the methods. 135 runs, about 13
-minutes on a laptop CPU.
+ending 9.4 m from its start). 162 runs, about 18 minutes on a laptop CPU.
 
 > **Scope.** Two sequences, synthetic degradations of real scans, fixed
 > default parameters for every method. The numbers describe these
@@ -66,33 +65,32 @@ above 10 %). The full table is [`results/04.csv`](results/04.csv).
 
 ## Findings (sequence 07, first pass)
 
-KISS-ICP and GICP only (no ICP baseline yet). Drift here uses the 100–600 m
-segments of the 694 m loop. The full table is
+Drift here uses the 100–600 m segments of the 694 m loop. The full table is
 [`results/07.csv`](results/07.csv).
 
 1. **Clean input.** KISS-ICP: 0.70 % drift, 0.63 m ATE, 9.9 ms per scan.
-   GICP: 1.19 %, 1.29 m, 6.3 ms.
+   GICP: 1.19 %, 1.29 m, 6.3 ms. Point-to-point ICP: 2.65 %, 4.05 m, 9.1 ms.
 2. **Where each method breaks:**
 
-   | Degradation | KISS-ICP | GICP (scan-to-scan) |
-   |---|---|---|
-   | Beams 64 → 8 | not broken (2.58 % at 8 rings) | not broken (4.17 % at 8 rings) |
-   | Dropout to 90 % | not broken (≤ 0.67 %) | not broken (≤ 1.64 %) |
-   | Range noise to 10 cm | not broken (≤ 0.70 %) | not broken (≤ 1.16 %) |
-   | Max range 80 → 10 m | 10 m (56.3 %) | not broken (5.80 % at 10 m) |
-   | Scan rate 10 → 1.25 Hz | 1.25 Hz (10.4 %) | not broken (8.96 % at 1.25 Hz) |
+   | Degradation | KISS-ICP | GICP (scan-to-scan) | P2P ICP (scan-to-scan) |
+   |---|---|---|---|
+   | Beams 64 → 8 | not broken (2.58 % at 8 rings) | not broken (4.17 % at 8 rings) | 16 rings (10.9 %) |
+   | Dropout to 90 % | not broken (≤ 0.67 %) | not broken (≤ 1.64 %) | not broken (≤ 4.33 %) |
+   | Range noise to 10 cm | not broken (≤ 0.70 %) | not broken (≤ 1.16 %) | not broken (≤ 3.20 %) |
+   | Max range 80 → 10 m | 10 m (56.3 %) | not broken (5.80 % at 10 m) | 10 m (23.1 %) |
+   | Scan rate 10 → 1.25 Hz | 1.25 Hz (10.4 %) | not broken (8.96 % at 1.25 Hz) | 1.25 Hz (40.4 %) |
 
 3. **The sequence 04 pattern holds, with later breaks.** Fewer rings again
    costs GICP more than KISS-ICP (8 rings: 4.17 % against 2.58 %), but
-   nothing diverges on these streets. Range truncation again favours GICP: at
+   neither diverges on these streets; point-to-point ICP does, from 16 rings. Range truncation again favours GICP: at
    10 m KISS-ICP's estimate covers 266.4 m of the 694.4 m path, while GICP
    drifts 5.80 %.
 4. **Inter-scan motion, not scan rate, looks like the limit.** Both methods
    hold at 2.5 Hz here (0.72 % each), where all three failed on sequence 04.
    The car is slower (mean 6.3 m/s), so 1.25 Hz means about 5.0 m between
-   scans, close to the 5.8 m of sequence 04 at 2.5 Hz. At that spacing both
-   methods sit near the 10 % line (KISS-ICP 10.4 %, GICP 8.96 %). Two
-   sequences are not enough to pin the number.
+   scans, close to the 5.8 m of sequence 04 at 2.5 Hz. At that spacing
+   KISS-ICP and GICP sit near the 10 % line (10.4 % and 8.96 %) and ICP
+   fails (40.4 %). Two sequences are not enough to pin the number.
 5. **The 10 m RPE has a floor on this sequence.** Clean input scores 0.28 m
    (KISS-ICP) and 0.27 m (GICP) over 10 m, against 0.07–0.09 m on sequence 04,
    and every dropout, noise and 80–20 m truncation run of both methods stays
@@ -110,8 +108,9 @@ the odometry devkit maps to odometry sequence 04. The alignment is checked at
 load time: the frame counts of the raw slice, `poses/04.txt` and `times.txt`
 agree (271), and the raw Velodyne timestamps match `times.txt` to within
 3.2 ms on every frame (the code asserts < 10 ms), so no frame is dropped or
-duplicated inside the slice. Ground
-truth (camera-0 frame) is moved into the Velodyne frame with the sequence's
+duplicated inside the slice. Sequence 07 is raw drive
+`2011_09_30_drive_0027`, frames 0–1100, and passes the same checks (1101
+frames). Ground truth (camera-0 frame) is moved into the Velodyne frame with the sequence's
 calibration, `T_velo_i = Tr⁻¹ · T_cam_i · Tr`. Every method gets the same
 input: the raw scan with KISS-ICP's KITTI vertical-angle correction
 (`_correct_kitti_scan`, the same call its KITTI dataloader makes), then the
@@ -123,7 +122,9 @@ starts wherever the azimuth steps from just below 0 to just above it. On all 279
 raw scans of the drive this gives exactly 64 rings whose median elevation falls
 strictly from top to bottom (frame 0: +2.3° to −23.7°, mean spacing 0.33° in
 the upper 32 rings and 0.49° in the lower 32, the HDL-64E's two blocks). The
-load step asserts both properties on every scan. Elevation is used as the check
+load step asserts both properties on every scan. On sequence 07 all 1101 scans
+also give 64 rings, but in 21 of them two adjacent rings swap median elevation
+by up to 0.37°, so the check allows swaps below 0.5°. Elevation is used as the check
 rather than the label: assigning each point to the nearest ring-median
 elevation disagrees with the scan-order ring for 11 %, 40 % and 29 % of the
 points of frames 0, 135 and 270, at near and far range alike.
@@ -166,12 +167,13 @@ Seeded draws are identical across methods (same seed, same scan order).
 - **KITTI drift**: the devkit's average translational error over 100–800 m
   segments (the copy shipped in `kiss_icp.metrics`). Sequence 04 is 394 m long,
   so only the 100, 200 and 300 m segments exist; treat it as indicative.
+  Sequence 07 (694 m) uses 100–600 m.
 - **Runtime**: wall-clock per scan for the whole odometry step (preprocessing,
   downsampling, registration, map update), excluding file I/O and the
   degradation. 8 threads per method on an Intel Core Ultra 7 255H (16
   hardware threads), one run per condition.
 - **Divergence flag**: a run is flagged when its KITTI drift exceeds 10 %
-  (about 20× the clean KISS-ICP value), a pose is non-finite, or the method
+  (about 20× the clean KISS-ICP value on sequence 04), a pose is non-finite, or the method
   throws. The threshold is a choice. It uses drift rather than a 10 m segment
   error because drift is defined at every scan rate. The CSV also keeps the
   worst 10 m segment error (`rpe10_max_m`), so the flag can be re-cut.
@@ -180,7 +182,7 @@ Seeded draws are identical across methods (same seed, same scan order).
 
 - **Two sequences.** Sequence 04 is 27 s of straight road (net heading
   change −0.1°), and 07 is one residential loop. Nothing is averaged over
-  sequences, and the ICP baseline has only been run on 04.
+  sequences.
 - **Synthetic degradations of real scans.** Dropout is i.i.d., while real
   dropout is structured (dark or specular surfaces, rain, spray). Range noise
   is Gaussian and independent of range and incidence angle. Truncation removes
@@ -189,11 +191,12 @@ Seeded draws are identical across methods (same seed, same scan order).
   the pattern of a real 16- or 32-beam sensor.
 - **The first scan pair at low rate has no motion prior.** Every method starts
   from identity, so on sequence 04 at 2.5 Hz the first registration must close
-  about 5.8 m from a zero guess (about 12 m at 1.25 Hz). Some rate failures may be initialisation failures rather
-  than steady-state ones.
+  about 5.8 m from a zero guess (about 12 m at 1.25 Hz). Some rate failures
+  may be start-up failures rather than tracking limits; a GT-seeded first
+  step would separate the two.
 - **Defaults, not tuned systems.** No method was re-tuned per degradation. A
-  GICP with a larger neighbourhood, or a scan-to-model GICP, would likely
-  survive sparser input. The comparison is also not only GICP against
+  GICP with a larger neighbourhood, or a scan-to-model GICP, might survive
+  sparser input; that is untested. The comparison is also not only GICP against
   point-to-point: KISS-ICP keeps a local map, the small_gicp variants here do
   not, so map vs. no map is confounded with the cost function.
 - **Runtime is indicative.** One run per condition, on a laptop with other
