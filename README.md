@@ -246,14 +246,14 @@ The kiss-icp README lists no KITTI numbers to compare against.
   the pattern of a real 16- or 32-beam sensor.
 - **The first scan pair at low rate has no motion prior.** Every method starts
   from identity, so on sequence 04 at 2.5 Hz the first registration must close
-  about 5.8 m from a zero guess (about 12 m at 1.25 Hz). Some rate failures
-  may be start-up failures rather than tracking limits; a GT-seeded first
-  step would separate the two.
-- **Defaults, not tuned systems.** No method was re-tuned per degradation. A
-  GICP with a larger neighbourhood, or a scan-to-model GICP, might survive
-  sparser input; that is untested. The comparison is also not only GICP against
-  point-to-point: KISS-ICP keeps a local map, the small_gicp variants here do
-  not, so map vs. no map is confounded with the cost function.
+  about 5.8 m from a zero guess (about 12 m at 1.25 Hz). The round 2
+  GT-seeded runs separate start-up failures from tracking limits for VGICP
+  (see [Round 2 checks](#round-2-checks-oct-12)); the other methods were not
+  re-run seeded.
+- **Defaults, not tuned systems.** No method was re-tuned per degradation,
+  apart from the range-matched KISS-ICP check in round 2. Round 2's
+  scan-to-model VGICP separates map vs. no map from the cost function; a GICP
+  with a larger neighbourhood is untested.
 - **Runtime is indicative.** One run per condition, on a laptop with other
   work running. A first pass at 16 threads was discarded: small_gicp's clean
   run took 20.2 ms/scan in one run and 29.0 in another, and 68 ms/scan in
