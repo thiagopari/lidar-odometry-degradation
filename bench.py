@@ -33,6 +33,7 @@ SWEEP = {  # the shared clean run is level 64 / 0 / 0 / inf / 1 of each
     "noise": [0.01, 0.03, 0.05, 0.10],  # Gaussian range sigma along the ray [m]
     "maxrange": [80, 40, 20, 10],  # [m]
     "rate": [2, 4, 8],  # keep every k-th scan: 10 Hz -> 5, 2.5, 1.25 Hz
+    "rate_gtseed": [2, 4, 8],  # same, but the first registration starts from the GT relative motion
 }
 SEEDS = {"dropout": [0, 1], "noise": [0, 1]}  # deterministic degradations run once
 DIVERGE_PCT = 10.0  # flag a run whose KITTI drift exceeds 10 % (defined at every scan rate, unlike 10 m RPE)
@@ -95,23 +96,29 @@ def degrade(pts, ring, kind, level, rng):
     return pts  # clean, rate (handled by frame selection)
 
 
-def run_kiss(scans):
+def run_kiss(scans, deskew=False, step=1, seed=None):
     """KISS-ICP, default config (max_range 100 m, voxel 1 m, adaptive threshold) except the thread
-    count; KITTI has no per-point timestamps, so like the official KITTI dataloader we pass none."""
+    count. KITTI .bin has no per-point time and kiss-icp 1.3.0's KITTI loader passes none, so its
+    deskew is a no-op there (poses match its own pipeline to 1e-12). deskew=True instead passes
+    t = 0.5 (1 - atan2(y, x) / pi), a clockwise sweep wrapping at the back, rescaled to the k-scan
+    interval when frames are skipped."""
     cfg = load_config(None)
     cfg.registration.max_num_threads = THREADS
     odom = KissICP(cfg)
-    for s in scans:
+    for i, s in enumerate(scans):
         t0 = time.perf_counter()
-        odom.register_frame(s, np.array([]))
+        t = 0.5 * (1 - np.arctan2(s[:, 1], s[:, 0]) / np.pi)
+        odom.register_frame(s, 0.5 + (t - 0.5) / step if deskew else np.array([]))
+        if i == 0 and seed is not None:
+            odom.last_delta = seed
         yield odom.last_pose.copy(), time.perf_counter() - t0
 
 
-def run_small_gicp(scans, reg_type):
+def run_small_gicp(scans, reg_type, seed=None, **_):
     """Scan-to-scan small_gicp: scan k registered to scan k-1 (KdTree target), 0.25 m voxel
     downsampling, 10-NN covariances, 1.0 m max correspondence, <= 20 iterations,
     constant-velocity initial guess (last relative motion)."""
-    T, delta, prev = np.eye(4), np.eye(4), None
+    T, delta, prev = np.eye(4), np.eye(4) if seed is None else seed, None
     for s in scans:
         t0 = time.perf_counter()
         cur, tree = small_gicp.preprocess_points(s, downsampling_resolution=0.25, num_neighbors=10, num_threads=THREADS)
@@ -124,7 +131,25 @@ def run_small_gicp(scans, reg_type):
         yield T.copy(), time.perf_counter() - t0
 
 
-METHODS = {"kiss": run_kiss, "gicp": lambda s: run_small_gicp(s, "GICP"), "icp": lambda s: run_small_gicp(s, "ICP")}
+def run_vgicp(scans, seed=None, **_):
+    """Scan-to-model small_gicp, after its README odometry example: VGICP against a GaussianVoxelMap
+    (1.0 m voxels, LRU horizon 100 / clear cycle 10) built from 0.25 m-downsampled scans,
+    constant-velocity initial guess, default 20 iterations."""
+    vmap = small_gicp.GaussianVoxelMap(1.0)
+    vmap.set_lru(horizon=100, clear_cycle=10)
+    T, delta = np.eye(4), np.eye(4) if seed is None else seed
+    for s in scans:
+        t0 = time.perf_counter()
+        cur, _ = small_gicp.preprocess_points(s, downsampling_resolution=0.25, num_neighbors=10, num_threads=THREADS)
+        if vmap.size():
+            T_new = small_gicp.align(vmap, cur, T @ delta, max_correspondence_distance=1.0, num_threads=THREADS).T_target_source
+            delta, T = np.linalg.inv(T) @ T_new, T_new
+        vmap.insert(cur, T)
+        yield T.copy(), time.perf_counter() - t0
+
+
+METHODS = {"kiss": run_kiss, "kiss_deskew": lambda s, **kw: run_kiss(s, deskew=True, **kw), "vgicp": run_vgicp,
+           "gicp": lambda s, **kw: run_small_gicp(s, "GICP", **kw), "icp": lambda s, **kw: run_small_gicp(s, "ICP", **kw)}
 
 
 def evaluate(gt, est):
@@ -171,16 +196,18 @@ def main():
         if new:
             w.writeheader()
         for kind, level, seed in runs:
-            idx = range(0, len(scans), level if kind == "rate" else 1)
+            step = level if kind.startswith("rate") else 1
+            idx = list(range(0, len(scans), step))
+            seed_delta = np.linalg.inv(gt[idx[0]]) @ gt[idx[1]] if kind == "rate_gtseed" else None
             for m in args.methods:
                 rng = np.random.default_rng(seed)  # same draws for every method
                 inputs = [degrade(scans[i], ring_ids[i], kind, level, rng) for i in idx]
                 row = {"seq": args.seq, "method": m, "degradation": kind, "level": level, "seed": seed,
                        "n_scans": len(inputs), "mean_pts": round(np.mean([len(p) for p in inputs]))}
                 try:
-                    poses, dts = zip(*METHODS[m](inputs))
+                    poses, dts = zip(*METHODS[m](inputs, step=step, seed=seed_delta))
                     est = np.array(poses)
-                    row.update(evaluate(gt[list(idx)], est), ms_per_scan=1e3 * np.mean(dts))
+                    row.update(evaluate(gt[idx], est), ms_per_scan=1e3 * np.mean(dts))
                     np.savetxt(OUT / "traj" / f"{args.seq}_{m}_{kind}_{level}_{seed}.txt", est[:, :3].reshape(len(est), 12))
                 except Exception as e:  # a crash is a result too
                     row.update(diverged=True, error=repr(e)[:200])

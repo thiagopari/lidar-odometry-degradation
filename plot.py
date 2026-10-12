@@ -15,14 +15,16 @@ from bench import gt_velo  # noqa: E402
 
 OUT = Path(__file__).parent / "results"
 INK, MUTED, GRID = "#0b0b0b", "#898781", "#e1e0d9"
-COLOR = {"kiss": "#2a78d6", "gicp": "#eb6834", "icp": "#1baf7a"}  # fixed categorical order
-NAME = {"kiss": "KISS-ICP (default)", "gicp": "small_gicp GICP, scan-to-scan", "icp": "small_gicp point-to-point ICP, scan-to-scan"}
+COLOR = {"kiss": "#2a78d6", "gicp": "#eb6834", "icp": "#1baf7a", "vgicp": "#eda100"}  # fixed categorical order
+NAME = {"kiss": "KISS-ICP (default)", "gicp": "small_gicp GICP, scan-to-scan", "icp": "small_gicp point-to-point ICP, scan-to-scan",
+        "vgicp": "small_gicp VGICP, scan-to-model"}
 PANELS = {  # degradation -> (title, clean tick, level -> tick)
     "beams": ("Beam decimation (rings)", "64", lambda v: f"{int(v)}"),
     "dropout": ("Random point dropout", "0%", lambda v: f"{v:.0%}"),
     "noise": ("Range noise σ along ray", "0", lambda v: f"{v * 100:g} cm"),
     "maxrange": ("Max-range truncation", "none", lambda v: f"{v:g} m"),
     "rate": ("Scan rate (frame skip)", "10 Hz", lambda v: f"{10 / v:g} Hz"),
+    "rate_gtseed": ("Scan rate, GT-seeded first step", "10 Hz", lambda v: f"{10 / v:g} Hz"),
 }
 ROWS = [("ate_rmse_m", "ATE RMSE [m]\n(SE(3)-aligned)"), ("rpe10_m", "RPE over 10 m [m]\n(translation RMSE)")]
 
@@ -32,7 +34,7 @@ def main(seq):
     methods = [m for m in COLOR if any(r["method"] == m for r in rows)]
     plt.rcParams.update({"font.size": 9, "text.color": INK, "axes.labelcolor": INK, "axes.edgecolor": GRID,
                          "xtick.color": MUTED, "ytick.color": MUTED, "axes.titlesize": 10})
-    fig, axes = plt.subplots(len(ROWS), len(PANELS), figsize=(16, 6.4), sharey="row", facecolor="#fcfcfb")
+    fig, axes = plt.subplots(len(ROWS), len(PANELS), figsize=(19, 6.4), sharey="row", facecolor="#fcfcfb")
     for (metric, ylabel), axrow in zip(ROWS, axes):
         for (kind, (title, clean_tick, fmt)), ax in zip(PANELS.items(), axrow):
             ax.set_facecolor("#fcfcfb")

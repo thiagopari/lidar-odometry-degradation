@@ -8,7 +8,7 @@ road at a mean 14.6 m/s), applies five synthetic degradations at three or four
 levels each, runs three odometry front ends on every degraded copy, and scores
 the trajectories against KITTI ground truth. A first pass repeats the sweep on
 sequence 07 (1101 scans, 694.4 m of residential streets at a mean 6.3 m/s,
-ending 9.4 m from its start). 162 runs, about 18 minutes on a laptop CPU.
+ending 9.4 m from its start). Round 1 was 162 runs (about 18 minutes on a laptop CPU); round 2 added VGICP, a deskew check and GT-seeded rate runs.
 
 > **Scope.** Two sequences, synthetic degradations of real scans, fixed
 > default parameters for every method. The numbers describe these
@@ -22,6 +22,11 @@ ending 9.4 m from its start). 162 runs, about 18 minutes on a laptop CPU.
 All drift values are the KITTI metric, which on this 394 m sequence uses only
 the 100, 200 and 300 m segments. "Breaks" means flagged as diverged (drift
 above 10 %). The full table is [`results/04.csv`](results/04.csv).
+
+> **Round 2 correction (Oct 12):** most of KISS-ICP's max-range failure below
+> is a configuration artifact. Its default assumes a 100 m sensor (1 m voxels);
+> told the truncated range, it no longer diverges at 20 m on seq 04. See
+> [Round 2 checks](#round-2-checks-oct-12).
 
 1. **Clean input gives sub-1 % drift for KISS-ICP and GICP.** KISS-ICP: 0.46 % drift, 0.20 m
    ATE, 0.07 m RPE over 10 m, 13.5 ms per scan. Scan-to-scan GICP: 0.52 %,
@@ -101,6 +106,35 @@ Drift here uses the 100–600 m segments of the 694 m loop. The full table is
 
 ![Clean-input trajectories, seq 07](results/07_clean_traj.png)
 
+## Round 2 checks (Oct 12)
+
+1. **The KISS-ICP baseline is fair.** Our KISS-ICP poses match kiss-icp's own
+   KITTI pipeline to 2e-13 on seq 04. Deskewing with azimuth timestamps is not a
+   consistent win (see [Method](#method)), so the official pipeline stays the default.
+2. **Keeping a map helps GICP on clean input.** The scan-to-model VGICP is the most
+   accurate method on seq 07: 0.48 % drift, against 0.70 % for KISS-ICP and
+   1.19 % for scan-to-scan GICP. On seq 04 it gets 0.50 %, against 0.46 % for KISS-ICP.
+3. **Max range, re-checked.**
+   - KISS-ICP's default config sets the voxel size to max range / 100, i.e. 1 m
+     for a 100 m sensor. [`kiss_range_check.py`](kiss_range_check.py) tells it the
+     truncated range instead (voxel = range / 100).
+   - With that change, seq 04 at 20 m drops from 100.5 % to **6.99 %**, and seq 07
+     at 10 m from 56.3 % to **9.27 %**.
+   - The GICP variants still lead at short range:
+     - seq 04 at 20 m: GICP 2.23 %, VGICP 2.25 %, range-matched KISS-ICP 6.99 %
+     - seq 07 at 10 m: GICP 5.80 %, VGICP 7.70 %, KISS-ICP 9.27 %
+   - At 10 m on seq 04 every method fails.
+4. **A map does not save sparse rings.**
+   - On seq 04, VGICP breaks at 16 rings (26.7 %), while scan-to-scan GICP held there.
+   - On seq 07, VGICP breaks at 8 rings (17.9 %), while scan-to-scan GICP held at 4.17 %.
+5. **Some low-rate failures happen at start-up.** Seeding VGICP's first
+   registration from ground truth changes:
+   - seq 04 at 2.5 Hz: 89.3 % → 0.53 %
+   - seq 04 at 1.25 Hz: 107 % → 0.60 %
+   - So on seq 04 the constant-velocity guess from rest is what fails, not tracking.
+   - On seq 07 at 1.25 Hz, seeding does not help (60.4 % → 61.4 %). That one is a
+     real tracking limit.
+
 ## Method
 
 **Data.** KITTI raw drive `2011_09_30_drive_0016` (sync), frames 0–270, which
@@ -138,6 +172,7 @@ points of frames 0, 135 and 270, at near and far range alike.
 | Range noise | σ = 1, 3, 5, 10 cm | 2 | Gaussian along the ray, direction kept |
 | Max-range truncation | 80, 40, 20, 10 m | 1 | drop points beyond *R* (fog/occlusion proxy) |
 | Scan rate | 10 → 5, 2.5, 1.25 Hz | 1 | keep every 2nd/4th/8th scan; GT subsampled to match |
+| Scan rate, GT-seeded | 10 → 5, 2.5, 1.25 Hz | 1 | as above, but the first registration starts from the GT relative motion |
 
 Seeded draws are identical across methods (same seed, same scan order).
 
@@ -155,6 +190,26 @@ Seeded draws are identical across methods (same seed, same scan order).
   8 threads.
 - **small_gicp point-to-point ICP, scan-to-scan**: the same pipeline with
   `registration_type="ICP"`, as a plain baseline.
+- **small_gicp 1.0.1 VGICP, scan-to-model** (added in round 2, after
+  small_gicp's README odometry example): each scan, downsampled at 0.25 m with
+  10-NN covariances, is registered by VGICP to a `GaussianVoxelMap` (1.0 m
+  voxels, LRU horizon 100, clear cycle 10) of earlier scans inserted at their
+  estimated poses. Constant-velocity initial guess, 1.0 m max correspondence,
+  default 20 iterations, 8 threads. It is the map-keeping counterpart of the
+  scan-to-scan GICP, so it separates map vs. no map from the cost function.
+
+**Is the KISS-ICP baseline fair?** kiss-icp 1.3.0's own KITTI dataloader
+passes no per-point timestamps, so its deskew step does nothing on KITTI: with
+empty timestamps, deskew on and off give identical poses. Our KISS-ICP poses
+on seq 04 match kiss-icp's `OdometryPipeline` with its KITTI dataloader to
+2e-13 (both 0.4579 % drift, 0.2038 m ATE). Deskewing with azimuth timestamps,
+t = 0.5 (1 − atan2(y, x)/π), does not help consistently. On seq 04 drift
+improves from 0.46 to 0.41 %, but ATE worsens from 0.20 to 0.23 m and 10 m
+RPE from 0.073 to 0.112 m. On seq 07 drift worsens from 0.70 to 0.75 % while
+ATE improves from 0.63 to 0.44 m. Wrapping the sweep at the front, or
+sweeping counter-clockwise, gave higher drift than this on both sequences. So the default stays the official
+pipeline, and the `kiss_deskew` rows in the CSVs are the sensitivity check.
+The kiss-icp README lists no KITTI numbers to compare against.
 
 **Metrics** (all against GT in the Velodyne frame):
 - **ATE RMSE**: evo APE on the translation, after an SE(3) Umeyama alignment
