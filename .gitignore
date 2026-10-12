@@ -1,0 +1,3 @@
+results/traj/
+results/*.log
+__pycache__/
