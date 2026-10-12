@@ -93,7 +93,7 @@ Drift here uses the 100–600 m segments of the 694 m loop. The full table is
    fails (40.4 %). Two sequences are not enough to pin the number.
 5. **The 10 m RPE has a floor on this sequence.** Clean input scores 0.28 m
    (KISS-ICP) and 0.27 m (GICP) over 10 m, against 0.07–0.09 m on sequence 04,
-   and every dropout, noise and 80–20 m truncation run of both methods stays
+   and every dropout, noise and 80–20 m truncation run of those two stays
    within 0.24–0.31 m. Something common to all runs dominates at that scale
    (possibly the ground truth); it was not investigated.
 
