@@ -75,7 +75,7 @@ def main(seq):
     fig.suptitle(f"KITTI odometry seq {seq} ({n} scans): error vs degradation level. Left-most tick = clean input; "
                  "bars = min/max over seeds", y=0.995, fontsize=10, color=INK)
     fig.tight_layout(rect=(0, 0, 1, 0.90))
-    fig.savefig(OUT / f"{seq}_sweep.png", dpi=130)
+    fig.savefig(OUT / f"{seq}_sweep.png", dpi=390)
 
     gt = gt_velo(seq)[:, :2, 3]
     fig, ax = plt.subplots(figsize=(7, 4), facecolor="#fcfcfb")
@@ -90,7 +90,7 @@ def main(seq):
     ax.legend(frameon=False)
     ax.set_title(f"Seq {seq}, clean input (unaligned, all start at identity)")
     fig.tight_layout()
-    fig.savefig(OUT / f"{seq}_clean_traj.png", dpi=130)
+    fig.savefig(OUT / f"{seq}_clean_traj.png", dpi=390)
 
 
 if __name__ == "__main__":
