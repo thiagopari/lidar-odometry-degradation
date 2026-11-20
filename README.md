@@ -8,7 +8,7 @@ road at a mean 14.6 m/s), applies five synthetic degradations at three or four
 levels each, runs three odometry front ends on every degraded copy, and scores
 the trajectories against KITTI ground truth. A first pass repeats the sweep on
 sequence 07 (1101 scans, 694.4 m of residential streets at a mean 6.3 m/s,
-ending 9.4 m from its start). Round 1 was 162 runs (about 18 minutes on a laptop CPU); round 2 added VGICP, a deskew check and GT-seeded rate runs.
+ending 9.5 m from its start). Round 1 was 162 runs (about 18 minutes on a laptop CPU); round 2 added VGICP, a deskew check and GT-seeded rate runs.
 
 > **Scope.** Two sequences, synthetic degradations of real scans, fixed
 > default parameters for every method. The numbers describe these
@@ -29,7 +29,7 @@ above 10 %). The full table is [`results/04.csv`](results/04.csv).
 > [Round 2 checks](#round-2-checks-oct-12).
 
 1. **Clean input gives sub-1 % drift for KISS-ICP and GICP.** KISS-ICP: 0.46 % drift, 0.20 m
-   ATE, 0.07 m RPE over 10 m, 13.5 ms per scan. Scan-to-scan GICP: 0.52 %,
+   ATE, 0.07 m RPE over 10 m, 20.5 ms per scan. Scan-to-scan GICP: 0.52 %,
    0.34 m, 0.09 m, 9.7 ms. Scan-to-scan point-to-point ICP: 2.16 %, 1.09 m,
    0.31 m, 11.4 ms.
 2. **Where each method breaks** (first level flagged within the sweep):
@@ -50,12 +50,12 @@ above 10 %). The full table is [`results/04.csv`](results/04.csv).
    leaves 12.6k points per scan, fewer than the 16.1k of 8 rings. Yet GICP
    drifts 1.07–1.09 % under dropout (two seeds) instead of diverging, and
    KISS-ICP drifts 0.52 %. Dropout also makes KISS-ICP faster: 6.0 ms per
-   scan at 90 %, against 13.5 ms clean.
-5. **Range noise up to σ = 10 cm barely moves drift, but costs time.** At
+   scan at 90 %, against 20.5 ms clean.
+5. **Range noise up to σ = 10 cm barely moves drift, but slows GICP.** At
    10 cm: KISS-ICP 0.51–0.52 %, GICP 0.49–0.53 %, ICP 2.58–2.74 % (two seeds
    each). Mean time per scan rises from 9.7 to 22.1 ms for GICP (13.1 and
-   31.0 ms in the two seeds, so partly timing noise) and from 13.5 to 19.2 ms
-   for KISS-ICP.
+   31.0 ms in the two seeds, so partly timing noise). KISS-ICP shows no clear
+   change (20.5 ms clean, 19.2 ms at 10 cm).
 6. **Max range reverses the ranking.** The 80 m cut removes nothing on this
    sequence (125,718 points per scan either way). At 40 m KISS-ICP's drift
    more than doubles to 1.05 % (GICP 1.10 %). At 20 m KISS-ICP stops moving: its
@@ -214,10 +214,8 @@ on seq 04 match kiss-icp's `OdometryPipeline` with its KITTI dataloader to
 2e-13 (both 0.4579 % drift, 0.2038 m ATE). Deskewing with azimuth timestamps,
 t = 0.5 (1 − atan2(y, x)/π), does not help consistently. On seq 04 drift
 improves from 0.46 to 0.41 %, but ATE worsens from 0.20 to 0.23 m and 10 m
-RPE from 0.073 to 0.112 m. On seq 07 drift worsens from 0.70 to 0.75 % while
-ATE improves from 0.63 to 0.44 m. Wrapping the sweep at the front, or
-sweeping counter-clockwise, gave higher drift than this on both sequences. So the default stays the official
-pipeline, and the `kiss_deskew` rows in the CSVs are the sensitivity check.
+RPE from 0.073 to 0.112 m. So the default stays the official pipeline, and
+the `kiss_deskew` row in `results/04.csv` is the sensitivity check.
 The kiss-icp README lists no KITTI numbers to compare against.
 
 **Metrics** (all against GT in the Velodyne frame):
@@ -263,10 +261,9 @@ The kiss-icp README lists no KITTI numbers to compare against.
   scan-to-model VGICP separates map vs. no map from the cost function; a GICP
   with a larger neighbourhood is untested.
 - **Runtime is indicative.** One run per condition, on a laptop with other
-  work running. A first pass at 16 threads was discarded: small_gicp's clean
-  run took 20.2 ms/scan in one run and 29.0 in another, and 68 ms/scan in
-  another condition, which is consistent with OpenMP threads stalling on a
-  busy hybrid CPU. Both methods are now capped at 8 threads, and the clean
+  work running. A first pass at 16 threads was discarded because its timings
+  were unstable, which is consistent with OpenMP threads stalling on a busy
+  hybrid CPU. Both methods are now capped at 8 threads, and the clean
   GICP run takes 9.7 ms/scan.
 - **Two seeds** per random degradation. A seed changes the degradation draw,
   not the scan.
